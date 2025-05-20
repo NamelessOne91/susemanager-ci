@@ -68,10 +68,10 @@ def run(params) {
                                 if (params.use_latest_ami_image) {
                                     stage('Clean old images') {
                                         // Get all image ami ids
-                                        image_amis = sh(script: "${awscli} ec2 describe-images --filters 'Name=name,Values=SUSE-Manager-*-BYOS*' --region ${params.aws_region} | jq -r '.Images[].ImageId'",
+                                        image_amis = sh(script: "${awscli} ec2 describe-images --filters 'Name=name,Values=SUSE*Manager-*-BYOS*' --region ${params.aws_region} | jq -r '.Images[].ImageId'",
                                                 returnStdout: true)
                                         // Get all snapshot ids
-                                        image_snapshots = sh(script: "${awscli} ec2 describe-images --filters 'Name=name,Values=SUSE-Manager-*-BYOS*' --region ${params.aws_region} | jq -r '.Images[].BlockDeviceMappings[0].Ebs.SnapshotId'",
+                                        image_snapshots = sh(script: "${awscli} ec2 describe-images --filters 'Name=name,Values=SUSE*Manager-*-BYOS*' --region ${params.aws_region} | jq -r '.Images[].BlockDeviceMappings[0].Ebs.SnapshotId'",
                                                 returnStdout: true)
 
                                         String[] ami_list = image_amis.split("\n")
