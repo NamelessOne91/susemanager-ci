@@ -83,11 +83,6 @@ variable "SCC_PASSWORD" {
   default = null
 }
 
-variable "AVAILABILITY_ZONE" {
-  type = string
-  default = null
-}
-
 variable "KEY_FILE" {
   type = string
   default = "/home/jenkins/.ssh/testing-suma.pem"
