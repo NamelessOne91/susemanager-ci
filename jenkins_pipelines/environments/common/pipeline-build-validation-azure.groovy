@@ -51,54 +51,13 @@ def run(params) {
                 sh "./terracumber-cli ${common_params} --gitrepo ${params.sumaform_gitrepo} --gitref ${params.sumaform_ref} --runstep gitsync --sumaform-backend azure"
             }
 
-
-            if (params.prepare_azure_env) {
-                stage("Add MU repositories") {
-                    stage("Create MU repositories file") {
-                        // Generate custom_repositories.json file in the workspace from the value passed by parameter
-                        if (params.custom_repositories?.trim()) {
-                            writeFile file: 'custom_repositories.json', text: params.custom_repositories, encoding: "UTF-8"
-                        }
-                        // Generate custom_repositories.json file in the workspace using a Python script - MI Identifiers passed by parameter
-                        if (params.mi_ids?.trim()) {
-                            node('manager-jenkins-node') {
-                                checkout scm
-                                res_python_script_ = sh(script: "python3 jenkins_pipelines/scripts/json_generator/maintenance_json_generator.py --mi_ids ${params.mi_ids} --no_embargo", returnStatus: true)
-                                echo "Build Validation JSON script return code:\n ${json_content}"
-                                if (res_python_script != 0) {
-                                    error("MI IDs (${params.mi_ids}) passed by parameter are wrong, already released or all under embargo")
-                                }
-                            }
-                        }
-                        // Save MU json into local file
-                        mu_repositories = sh(script: "cat ${WORKSPACE}/custom_repositories.json | jq -r ' to_entries[] |  \" \\(.value)\"' | jq -r ' to_entries[] |  \" \\(.value)\"'",
-                                returnStdout: true)
-                        // Get the testsuite defaults repositories list
-                        repositories = sh(script: "cat ${local_mirror_dir}/salt/mirror/etc/minimum_repositories_testsuite.yaml",
-                                returnStdout: true)
-                        if (!mu_repositories.isEmpty()) {
-                            String[] REPOSITORIES_LIST = mu_repositories.split("\n")
-                            // Add MU repositories to the repository list
-                            REPOSITORIES_LIST.each { item ->
-                                repositories = "${repositories}\n\n" +
-                                        "  - url: ${item}\n" +
-                                        "    archs: [x86_64]"
-                            }
-                        }
-                        writeFile file: "${local_mirror_dir}/salt/mirror/etc/minima-customize.yaml", text: repositories, encoding: "UTF-8"
-                    }
-                }
-            } 
-
             if (params.must_deploy) {
-                stage("Deploy to Azure with MU") {
+                stage("Deploy to Azure") {
                     int count = 0
-                    // Replace internal repositories by mirror repositories
-                    sh "sed -i 's/ibs\\///g' ${WORKSPACE}/custom_repositories.json"
 
                     // Deploying Azure server using MU repositories
-                    sh "echo \"export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.terraform_bin}; export TERRAFORM_PLUGINS=${params.terraform_bin_plugins}; export TF_VAR_SERVER_AMI=${server_ami}; export TF_VAR_PROXY_AMI=${proxy_ami}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --runstep provision --custom-repositories ${WORKSPACE}/custom_repositories.json --sumaform-backend azure\""
-                    sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TF_VAR_ARCHITECTURE=${params.architecture}; export TERRAFORM=${params.terraform_bin}; export TERRAFORM_PLUGINS=${params.terraform_bin_plugins}; export TF_VAR_SERVER_AMI=${server_ami}; export TF_VAR_PROXY_AMI=${proxy_ami}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --custom-repositories ${WORKSPACE}/custom_repositories.json --use-tf-resource-cleaner --tf-resources-to-keep ${params.minions_to_run.split(', ').join(' ')} --runstep provision --sumaform-backend azure"
+                    sh "echo \"export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.terraform_bin}; export TERRAFORM_PLUGINS=${params.terraform_bin_plugins}; export TF_VAR_SERVER_IMAGE=${server_image}; export TF_VAR_PROXY_IMAGE=${proxy_image}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend azure\""
+                    sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TF_VAR_ARCHITECTURE=${params.architecture}; export TERRAFORM=${params.terraform_bin}; export TERRAFORM_PLUGINS=${params.terraform_bin_plugins}; export TF_VAR_SERVER_IMAGE=${server_image}; export TF_VAR_PROXY_IMAGE=${proxy_image}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --use-tf-resource-cleaner --tf-resources-to-keep ${params.minions_to_run.split(', ').join(' ')} --runstep provision --sumaform-backend azure"
                     deployed = true
 
                 }
@@ -124,25 +83,11 @@ def run(params) {
                     // Get minion list from terraform state list command
                     def nodesHandler = getNodesHandler()
                     res_sync_products = sh(script: "./terracumber-cli ${common_params} --logfile ${resultdirbuild}/testsuite.log --runstep cucumber --cucumber-cmd 'unset ${nodesHandler.envVariableListToDisable.join(' ')}; ${env.exports} cd /root/spacewalk/testsuite; rake cucumber:build_validation_reposync'", returnStatus: true)
-                    echo "Custom channels and MU repositories status code: ${res_products}"
-                    echo "Custom channels and MU repositories synchronization status code: ${res_sync_products}"
                     sh "exit ${res_sync_products}"
                 }
             }
 
             /** Proxy stages begin **/
-            stage('Add MUs Proxy') {
-                if (params.must_add_MU_repositories && params.enable_proxy_stages) {
-                    echo 'Add proxy MUs'
-                    if (params.confirm_before_continue) {
-                        input 'Press any key to start adding Maintenance Update repositories'
-                    }
-                    echo 'Add custom channels and MU repositories'
-                    res_mu_repos = sh(script: "./terracumber-cli ${common_params} --logfile ${resultdirbuild}/testsuite.log --runstep cucumber --cucumber-cmd '${env.exports} cd /root/spacewalk/testsuite; rake cucumber:build_validation_add_maintenance_update_repositories_proxy'", returnStatus: true)
-                    echo "Custom channels and MU repositories status code: ${res_mu_repos}"
-                    sh "exit ${res_mu_repos}"
-                }
-            }
             stage('Add Activation Keys Proxy') {
                 if (params.must_add_keys && params.enable_proxy_stages) {
                     echo 'Add proxy activation key'
@@ -205,17 +150,6 @@ def run(params) {
             // Hide monitoring for qe update pipeline
             if (params.enable_monitoring_stages) {
                 try {
-                    stage('Add MUs Monitoring') {
-                        if (params.must_add_MU_repositories && params.enable_monitoring_stages) {
-                            if (params.confirm_before_continue) {
-                                input 'Press any key to start adding Maintenance Update repositories'
-                            }
-                            echo 'Add custom channels and MU repositories'
-                            res_mu_repos = sh(script: "./terracumber-cli ${common_params} --logfile ${resultdirbuild}/testsuite.log --runstep cucumber --cucumber-cmd '${env.exports} cd /root/spacewalk/testsuite; rake cucumber:build_validation_add_maintenance_update_repositories_monitoring_server'", returnStatus: true)
-                            echo "Custom channels and MU repositories status code: ${res_mu_repos}"
-                            sh "exit ${res_mu_repos}"
-                        }
-                    }
                     stage('Add Activation Keys Monitoring') {
                         if (params.must_add_keys && params.enable_monitoring_stages) {
                             echo 'Add server monitoring activation key'
@@ -397,37 +331,6 @@ def clientTestingStages(params, capybara_timeout, default_timeout, minion_type =
             def temporaryList = nodesHandler.envVariableList.toList() - node.toUpperCase()
             stage("${node}") {
                 echo "Testing ${node}"
-            }
-            stage("Add MUs ${node}") {
-                if (params.must_add_MU_repositories) {
-                    if (node.contains('sshminion')) {
-                        // SSH minion need minion MU channel. This section wait until minion finish creating MU channel
-                        def minion_name_without_ssh = node.replaceAll('sshminion', 'minion')
-                        println "Waiting for the MU channel creation by ${minion_name_without_ssh} for ${node}."
-                        waitUntil {
-                            mu_sync_status[minion_name_without_ssh] != 'UNSYNC'
-                        }
-                        if (mu_sync_status[minion_name_without_ssh] == 'FAIL') {
-                            error("${minion_name_without_ssh} MU synchronization failed")
-                        } else {
-                            println "MU channel available for ${node} "
-                        }
-                    } else {
-                        if (params.confirm_before_continue) {
-                            input 'Press any key to start adding Maintenance Update repositories'
-                        }
-                        echo 'Add custom channels and MU repositories'
-                        res_mu_repos = sh(script: "./terracumber-cli ${common_params} --logfile ${resultdirbuild}/testsuite.log --runstep cucumber --cucumber-cmd 'unset ${temporaryList.join(' ')}; ${env.exports} cd /root/spacewalk/testsuite; rake cucumber:build_validation_add_maintenance_update_repositories_${node}'", returnStatus: true)
-                        if (res_mu_repos != 0) {
-                            mu_sync_status[node] = 'FAIL'
-                            error("Add custom channels and MU repositories failed with status code: ${res_mu_repos}")
-                        }
-                        echo "Custom channels and MU repositories status code: ${res_mu_repos}"
-
-                        // Update minion repo sync status variable once the MU channel is synchronized
-                        mu_sync_status[node] = 'SYNC'
-                    }
-                }
             }
             stage("Add non MU Repositories ${node}") {
                 if (params.must_add_non_MU_repositories) {
