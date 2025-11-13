@@ -137,20 +137,18 @@ variable "ARCHITECTURE" {
 }
 
 provider "azurerm" {
-  region     = var.REGION
+  features {}
 }
 
 module "base" {
   source                   = "./modules/base"
   product_version          = "5.1-paygo"
   name_prefix              = var.NAME_PREFIX
-  mirror                   = var.MIRROR
   testsuite                = true
   use_avahi                = false
   use_eip_bastion          = false
   is_server_paygo_instance = true
   provider_settings        = {
-    availability_zone = var.AVAILABILITY_ZONE
     region            = var.REGION
     ssh_allowed_ips   = var.ALLOWED_IPS
     key_name          = var.KEY_NAME
@@ -210,7 +208,7 @@ module "proxy" {
   server_configuration      = module.server.configuration
   name                      = "proxy"
   proxy_registration_code   = var.PROXY_REGISTRATION_CODE
-  image                     = var.PROXY_AMI != "" ? var.PROXY_AMI : "smlm-proxy-51-${var.ARCHITECTURE}-byos"
+  image                     = var.PROXY_IMAGE != "" ? var.PROXY_IMAGE : "smlm-proxy-51-${var.ARCHITECTURE}-byos"
   provision                 = false
 
 
