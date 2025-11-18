@@ -136,7 +136,7 @@ variable "ARCHITECTURE" {
   default     = "x86_64"
 }
 
-provider "azure" {
+provider "azurerm" {
   region     = var.REGION
 }
 
