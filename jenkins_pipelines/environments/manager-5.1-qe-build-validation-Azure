@@ -47,7 +47,7 @@ node('sumaform-cucumber') {
             string(name: 'server_image', defaultValue: '', description: 'Specify the server platform image if not using the default search'),
             string(name: 'proxy_image', defaultValue: '', description: 'Specify the proxy plaform image if not using the default search'),
             choice(name: 'architecture', choices: ['x86_64', 'arm64'], description: 'Server and Proxy architecture'),
-            string(name: 'azure_region', defaultValue: 'Germany West Central', description: 'Describe the Azure region where to deploy the server'),
+            string(name: 'azure_region', defaultValue: 'germanywestcentral', description: 'Describe the Azure region where to deploy the server'),
             string(name: 'key_file', defaultValue: '/home/jenkins/.ssh/testing-suma.pem', description: 'Path to SSH private key to access instance in Azure'),
             string(name: 'key_name', defaultValue: 'testing-suma', description: 'SSH key name in Azure'),
             text(name: 'allowed_IPS', defaultValue: '195.135.223.0/24', description: 'Add the public IPs to add to Azure ingress security group ( keep default Jenkins address ) separated by new line' ),
