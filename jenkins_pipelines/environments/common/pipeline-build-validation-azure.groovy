@@ -6,7 +6,7 @@ def run(params) {
         // The junit plugin doesn't affect full paths
         junit_resultdir = "results/${BUILD_NUMBER}/results_junit"
         azure_dir = "${resultdir}/sumaform-azure"
-        azure_cli = '/usr/local/bin/azure'
+        azure_cli = '/usr/local/bin/az'
         node_user = 'jenkins'
         build_validation = true
         env.exports = "export BUILD_NUMBER=${BUILD_NUMBER}; export BUILD_VALIDATION=true; export CUCUMBER_PUBLISH_QUIET=true;"
