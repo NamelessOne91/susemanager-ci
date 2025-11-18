@@ -156,16 +156,6 @@ module "base" {
   }
 }
 
-module "mirror" {
-  source = "./modules/mirror"
-  base_configuration = module.base.configuration
-  disable_cron = true
-  provider_settings = {
-    public_instance = true
-  }
-  image = "opensuse156o"
-}
-
 module "server" {
   source                     = "./modules/server_containerized"
   base_configuration = merge(module.base.configuration,
@@ -423,14 +413,6 @@ module "controller" {
 
 output "bastion_public_name" {
   value = lookup(module.base.configuration, "bastion_host", null)
-}
-
-output "aws_mirrors_private_name" {
-  value = module.mirror.configuration.hostnames
-}
-
-output "aws_mirrors_public_name" {
-  value = module.mirror.configuration.public_names
 }
 
 output "configuration" {
