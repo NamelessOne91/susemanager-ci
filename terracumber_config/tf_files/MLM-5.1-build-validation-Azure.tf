@@ -142,7 +142,7 @@ provider "azurerm" {
 
 module "base" {
   source                   = "./modules/base"
-  product_version          = "5.1-paygo"
+  product_version          = "5.1-released"
   name_prefix              = var.NAME_PREFIX
   testsuite                = true
   use_avahi                = false
@@ -177,6 +177,7 @@ module "server" {
   main_disk_size             = 200
   repository_disk_size       = 1500
   database_disk_size         = 0
+  product_version            = "5.1-paygo"
 
   auto_accept                    = false
   monitored                      = false
@@ -353,11 +354,12 @@ module "sles15sp6_sshminion" {
 }
 
 module "rhel9_paygo_minion" {
-  source             = "./modules/minion"
-  base_configuration = module.base.configuration
-  name               = "rhel9-paygo-minion"
-  image              = "rhel9"
-  server_configuration = module.server.configuration
+  source                  = "./modules/minion"
+  base_configuration      = module.base.configuration
+  name                    = "rhel9-paygo-minion"
+  image                   = "rhel9"
+  product_version         = "5.1-paygo"
+  server_configuration    = module.server.configuration
   auto_connect_to_master  = false
   use_os_released_updates = false
   install_salt_bundle     = false
