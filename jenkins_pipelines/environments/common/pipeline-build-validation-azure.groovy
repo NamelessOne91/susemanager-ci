@@ -53,41 +53,39 @@ def run(params) {
 
 
             if (params.prepare_azure_env) {
-                stage("Prepare Azure environment") {
-                    "add_mu_repositories": {
-                        stage("Create MU repositories file") {
-                            // Generate custom_repositories.json file in the workspace from the value passed by parameter
-                            if (params.custom_repositories?.trim()) {
-                                writeFile file: 'custom_repositories.json', text: params.custom_repositories, encoding: "UTF-8"
-                            }
-                            // Generate custom_repositories.json file in the workspace using a Python script - MI Identifiers passed by parameter
-                            if (params.mi_ids?.trim()) {
-                                node('manager-jenkins-node') {
-                                    checkout scm
-                                    res_python_script_ = sh(script: "python3 jenkins_pipelines/scripts/json_generator/maintenance_json_generator.py --mi_ids ${params.mi_ids} --no_embargo", returnStatus: true)
-                                    echo "Build Validation JSON script return code:\n ${json_content}"
-                                    if (res_python_script != 0) {
-                                        error("MI IDs (${params.mi_ids}) passed by parameter are wrong, already released or all under embargo")
-                                    }
-                                }
-                            }
-                            // Save MU json into local file
-                            mu_repositories = sh(script: "cat ${WORKSPACE}/custom_repositories.json | jq -r ' to_entries[] |  \" \\(.value)\"' | jq -r ' to_entries[] |  \" \\(.value)\"'",
-                                    returnStdout: true)
-                            // Get the testsuite defaults repositories list
-                            repositories = sh(script: "cat ${local_mirror_dir}/salt/mirror/etc/minimum_repositories_testsuite.yaml",
-                                    returnStdout: true)
-                            if (!mu_repositories.isEmpty()) {
-                                String[] REPOSITORIES_LIST = mu_repositories.split("\n")
-                                // Add MU repositories to the repository list
-                                REPOSITORIES_LIST.each { item ->
-                                    repositories = "${repositories}\n\n" +
-                                            "  - url: ${item}\n" +
-                                            "    archs: [x86_64]"
-                                }
-                            }
-                            writeFile file: "${local_mirror_dir}/salt/mirror/etc/minima-customize.yaml", text: repositories, encoding: "UTF-8"
+                stage("Add MU repositories") {
+                    stage("Create MU repositories file") {
+                        // Generate custom_repositories.json file in the workspace from the value passed by parameter
+                        if (params.custom_repositories?.trim()) {
+                            writeFile file: 'custom_repositories.json', text: params.custom_repositories, encoding: "UTF-8"
                         }
+                        // Generate custom_repositories.json file in the workspace using a Python script - MI Identifiers passed by parameter
+                        if (params.mi_ids?.trim()) {
+                            node('manager-jenkins-node') {
+                                checkout scm
+                                res_python_script_ = sh(script: "python3 jenkins_pipelines/scripts/json_generator/maintenance_json_generator.py --mi_ids ${params.mi_ids} --no_embargo", returnStatus: true)
+                                echo "Build Validation JSON script return code:\n ${json_content}"
+                                if (res_python_script != 0) {
+                                    error("MI IDs (${params.mi_ids}) passed by parameter are wrong, already released or all under embargo")
+                                }
+                            }
+                        }
+                        // Save MU json into local file
+                        mu_repositories = sh(script: "cat ${WORKSPACE}/custom_repositories.json | jq -r ' to_entries[] |  \" \\(.value)\"' | jq -r ' to_entries[] |  \" \\(.value)\"'",
+                                returnStdout: true)
+                        // Get the testsuite defaults repositories list
+                        repositories = sh(script: "cat ${local_mirror_dir}/salt/mirror/etc/minimum_repositories_testsuite.yaml",
+                                returnStdout: true)
+                        if (!mu_repositories.isEmpty()) {
+                            String[] REPOSITORIES_LIST = mu_repositories.split("\n")
+                            // Add MU repositories to the repository list
+                            REPOSITORIES_LIST.each { item ->
+                                repositories = "${repositories}\n\n" +
+                                        "  - url: ${item}\n" +
+                                        "    archs: [x86_64]"
+                            }
+                        }
+                        writeFile file: "${local_mirror_dir}/salt/mirror/etc/minima-customize.yaml", text: repositories, encoding: "UTF-8"
                     }
                 }
             } 
