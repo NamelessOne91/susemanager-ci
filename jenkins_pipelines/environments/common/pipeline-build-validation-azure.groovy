@@ -27,7 +27,7 @@ def run(params) {
         def products_and_salt_migration_stage_result_fail = false
         def retail_stage_result_fail = false
 
-        env.common_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/${params.tf_file} --gitfolder ${azure_dir} --bastion_ssh_key ${params.key_file}"
+        env.common_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/${params.tf_file} --gitfolder ${azure_dir} --bastion_ssh_key ${params.key_file} --terraform-bin ${params.bin_path}"
 
         // Capybara configuration
         def capybara_timeout =30
