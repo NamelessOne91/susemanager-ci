@@ -93,6 +93,11 @@ variable "KEY_NAME" {
   default = "testing-suma"
 }
 
+variable "KEY_RESOURCE_GROUP" {
+  type = string
+  default = "suma-ci-resources"
+}
+
 variable "SERVER_REGISTRATION_CODE" {
   type = string
   default = null
@@ -149,10 +154,11 @@ module "base" {
   use_eip_bastion          = false
   is_server_paygo_instance = true
   provider_settings        = {
-    region            = var.REGION
-    ssh_allowed_ips   = var.ALLOWED_IPS
-    key_name          = var.KEY_NAME
-    key_file          = var.KEY_FILE
+    region                 = var.REGION
+    ssh_allowed_ips        = var.ALLOWED_IPS
+    key_name               = var.KEY_NAME
+    key_file               = var.KEY_FILE
+    key_resource_group     = var.KEY_RESOURCE_GROUP
   }
 }
 
