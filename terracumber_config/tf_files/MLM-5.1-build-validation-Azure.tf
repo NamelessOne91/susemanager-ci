@@ -120,7 +120,7 @@ variable "ALLOWED_IPS" {
 
 variable "NAME_PREFIX" {
   type = string
-  default = "mlm-51-bv-"
+  default = "mlm-51-bv"
 }
 
 variable "SERVER_IMAGE" {

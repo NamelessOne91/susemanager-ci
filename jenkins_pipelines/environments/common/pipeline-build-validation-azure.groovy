@@ -36,8 +36,25 @@ def run(params) {
         if (params.deploy_parallelism) {
             env.common_params = "${common_params} --parallelism ${params.deploy_parallelism}"
         }
+        
         // Public IP for Azure ingress
-        String[] ALLOWED_IPS = params.allowed_IPS.split("\n")
+        def rawAllowedIPs = params.allowed_IPS.split("\n")
+
+        env.azure_configuration = "REGION = \"${params.azure_region}\"\n" +
+            "ARCHITECTURE = \"${params.architecture}\"\n" +
+            "SERVER_IMAGE = \"${server_image}\"\n" +
+            "PROXY_IMAGE = \"${proxy_image}\"\n" +
+            "KEY_NAME = \"${params.key_name}\"\n" +
+            "KEY_FILE = \"${params.key_file}\"\n" +
+            "KEY_RESOURCE_GROUP = \"${params.key_resource_group}\"\n" +
+            "ALLOWED_IPS = [ \n"
+
+        rawAllowedIPs.each { ip ->
+            env.azure_configuration = azure_configuration + "    \"${ip}\",\n"
+        }
+        env.azure_configuration = azure_configuration + "]\n"
+
+        writeFile file: "${azure_dir}/terraform.tfvars", text: azure_configuration, encoding: "UTF-8"
 
         try {
             stage('Clone terracumber, susemanager-ci and sumaform') {
@@ -56,8 +73,8 @@ def run(params) {
                     int count = 0
 
                     // Deploying Azure server using MU repositories{
-                    sh "echo \"export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; export TF_VAR_REGION=${params.azure_region}; export TF_VAR_SERVER_IMAGE=${server_image}; export TF_VAR_PROXY_IMAGE=${proxy_image}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend azure\""
-                    sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TF_VAR_ARCHITECTURE=${params.architecture}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; export TF_VAR_REGION=${params.azure_region}; export TF_VAR_SERVER_IMAGE=${server_image}; export TF_VAR_PROXY_IMAGE=${proxy_image}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --use-tf-resource-cleaner --tf-resources-to-keep ${params.minions_to_run.split(', ').join(' ')} --runstep provision --sumaform-backend azure"
+                    sh "echo \"export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend azure\""
+                    sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-azure.log --init --taint '.*(domain|main_disk).*' --use-tf-resource-cleaner --tf-resources-to-keep ${params.minions_to_run.split(', ').join(' ')} --runstep provision --sumaform-backend azure"
                     deployed = true
 
                 }
