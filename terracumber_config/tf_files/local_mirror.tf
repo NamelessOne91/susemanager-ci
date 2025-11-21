@@ -105,9 +105,8 @@ module "base" {
   ssh_key_path = var.SSH_KEY
   cc_username = var.SCC_USER
   cc_password = var.SCC_PASSWORD
-  name_prefix = "mirror-mu-aws-"
-  images = [
-    "opensuse156o"]
+  name_prefix = "mirror-mu-cloud-"
+  images = [ "opensuse156o" ]
 
   provider_settings = {
     pool = local.pool

@@ -1,7 +1,7 @@
 // Mandatory variables for terracumber
 variable "URL_PREFIX" {
   type = string
-  default = "https://ci.suse.de/view/Manager/view/Manager-5.0/job/SUSEManager-5.0-AWS"
+  default = "https://ci.suse.de/view/Manager/view/Manager-5.1/job/SUSEManager-5.1-Azure"
 }
 
 // Not really used as this is for --runall parameter, and we run cucumber step by step
@@ -17,7 +17,7 @@ variable "CUCUMBER_GITREPO" {
 
 variable "CUCUMBER_BRANCH" {
   type = string
-  default = "Manager-5.0"
+  default = "Manager-5.1"
 }
 
 variable "CUCUMBER_RESULTS" {
@@ -88,12 +88,17 @@ variable "AVAILABILITY_ZONE" {
 
 variable "KEY_FILE" {
   type = string
-  default = "/home/jenkins/.ssh/testing-suma.pem"
+  default = "/home/jenkins/.ssh/azure/testing-suma.pem"
 }
 
 variable "KEY_NAME" {
   type = string
   default = "testing-suma"
+}
+
+variable "KEY_RESOURCE_GROUP" {
+  type = string
+  default = "suma-ci-resources"
 }
 
 variable "ALLOWED_IPS" {
@@ -113,14 +118,14 @@ variable "PROXY_REGISTRATION_CODE" {
 
 variable "NAME_PREFIX" {
   type = string
-  default = "aws-mirror"
+  default = "azure-mirror"
 }
 
 locals {
-  domain            = "suma.ci.aws"
+  domain = "suma.ci.azure"
 }
 
-provider "aws" {
+provider "azure" {
   region = var.REGION
 }
 
@@ -140,7 +145,8 @@ module "base" {
     ssh_allowed_ips   = var.ALLOWED_IPS
     key_name          = var.KEY_NAME
     key_file          = var.KEY_FILE
-    # route53_domain    = local.domain
+    key_resource_group     = var.KEY_RESOURCE_GROUP
+
     bastion_host      = "${var.NAME_PREFIX}-bastion.${local.domain}"
   }
 }
@@ -161,10 +167,10 @@ output "bastion_public_name" {
   value = lookup(module.base.configuration, "bastion_host", null)
 }
 
-output "aws_mirrors_private_name" {
+output "azure_mirrors_private_name" {
   value = module.mirror.configuration.hostnames
 }
 
-output "aws_mirrors_public_name" {
+output "azure_mirrors_public_name" {
   value = module.mirror.configuration.public_names
 }

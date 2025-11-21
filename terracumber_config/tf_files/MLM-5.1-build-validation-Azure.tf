@@ -71,6 +71,10 @@ variable "REGION" {
   default = null
 }
 
+variable "MIRROR"{
+  type = string
+  default = null
+}
 
 // sumaform specific variables
 variable "SCC_USER" {
@@ -85,7 +89,7 @@ variable "SCC_PASSWORD" {
 
 variable "KEY_FILE" {
   type = string
-  default = "/home/jenkins/.ssh/testing-suma.pem"
+  default = "/home/jenkins/.ssh/azure/testing-suma.pem"
 }
 
 variable "KEY_NAME" {
@@ -149,9 +153,10 @@ module "base" {
   source                   = "./modules/base"
   product_version          = "5.1-released"
   name_prefix              = var.NAME_PREFIX
+  mirror                   = var.MIRROR
   testsuite                = true
   use_avahi                = false
-  use_eip_bastion          = false
+  public_ip_bastion        = false
   is_server_paygo_instance = true
   provider_settings        = {
     region                 = var.REGION
@@ -160,6 +165,16 @@ module "base" {
     key_file               = var.KEY_FILE
     key_resource_group     = var.KEY_RESOURCE_GROUP
   }
+}
+
+module "mirror" {
+  source = "./modules/mirror"
+  base_configuration = module.base.configuration
+  disable_cron = true
+  provider_settings = {
+    public_instance = true
+  }
+  image = "opensuse156o"
 }
 
 module "server" {
@@ -368,7 +383,6 @@ module "rhel9_paygo_minion" {
 
 }
 
-
 module "controller" {
   source             = "./modules/controller"
   name               = "controller"
@@ -419,6 +433,14 @@ module "controller" {
 
 output "bastion_public_name" {
   value = lookup(module.base.configuration, "bastion_host", null)
+}
+
+output "azure_mirrors_private_name" {
+  value = module.mirror.configuration.hostnames
+}
+
+output "azure_mirrors_public_name" {
+  value = module.mirror.configuration.public_names
 }
 
 output "configuration" {
