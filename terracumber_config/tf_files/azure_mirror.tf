@@ -125,8 +125,8 @@ locals {
   domain = "suma.ci.azure"
 }
 
-provider "azure" {
-  region = var.REGION
+provider "azurerm" {
+  features {}
 }
 
 module "base" {

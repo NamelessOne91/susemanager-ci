@@ -29,8 +29,8 @@ def run(params) {
         def products_and_salt_migration_stage_result_fail = false
         def retail_stage_result_fail = false
 
-        local_mirror_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/local_mirror.tf --gitfolder ${local_dir}"
-        azure_mirror_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/azure_mirror.tf --gitfolder ${azure_dir}"
+        local_mirror_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/local_mirror.tf --gitfolder ${local_dir} --terraform-bin ${params.bin_path}"
+        azure_mirror_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/azure_mirror.tf --gitfolder ${azure_dir} --terraform-bin ${params.bin_path}"
         env.common_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/${params.tf_file} --gitfolder ${azure_dir} --bastion_ssh_key ${params.key_file} --terraform-bin ${params.bin_path}"
 
         // Capybara configuration
@@ -39,7 +39,7 @@ def run(params) {
 
         if (params.deploy_parallelism) {
             local_mirror_params = "${local_mirror_params} --parallelism ${params.deploy_parallelism}"
-            azure_mirror_params = "${aws_mirror_params} --parallelism ${params.deploy_parallelism}"
+            azure_mirror_params = "${azure_mirror_params} --parallelism ${params.deploy_parallelism}"
             env.common_params = "${common_params} --parallelism ${params.deploy_parallelism}"
         }
 
@@ -125,7 +125,7 @@ def run(params) {
                                 // Fix issue where result folder is created at the same time by local mirror and azure mirror
                                 sleep(30)
                             
-                                sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${aws_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-aws.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend aws"
+                                sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${azure_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-azure.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend azure"
                             }
                         }
                     )
@@ -134,9 +134,9 @@ def run(params) {
                         // Get local and azure hostname
                         mirror_address_local = sh(script: "cat ${local_dir}/terraform.tfstate | jq -r '.outputs.local_mirrors_public_ip.value[0][0]' ",
                                 returnStdout: true).trim()
-                        mirror_hostname_azure_public = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.azure_mirrors_public_name.value[0]' ",
+                        mirror_hostname_azure_public = sh(script: "cat ${azure_dir}/terraform.tfstate | jq -r '.outputs.azure_mirrors_public_name.value[0]' ",
                                 returnStdout: true).trim()
-                        env.mirror_hostname_azure_private = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.azure_mirrors_private_name.value[0]' ",
+                        env.mirror_hostname_azure_private = sh(script: "cat ${azure_dir}/terraform.tfstate | jq -r '.outputs.azure_mirrors_private_name.value[0]' ",
                                 returnStdout: true).trim()
 
                         if (params.prepare_azure_env) {
@@ -150,7 +150,7 @@ def run(params) {
                             sh "scp ${ssh_option} ${params.key_file} ${user}@${mirror_address_scp}:/root/testing-suma.pem"
                             sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'chmod 0400 /root/testing-suma.pem'"
                             sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'tar -czvf mirror.tar.gz -C /srv/mirror/ .'"
-                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'scp ${ssh_option} -i /root/testing-suma.pem /root/mirror.tar.gz azureuser@${mirror_hostname_aws_public}:/home/azureuser/' "
+                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'scp ${ssh_option} -i /root/testing-suma.pem /root/mirror.tar.gz azureuser@${mirror_hostname_azure_public}:/home/azureuser/' "
                             sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_azure_public} 'sudo tar -xvf /home/ec2-user/mirror.tar.gz -C /srv/mirror/' "
                             sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_azure_public} 'sudo rsync -a /srv/mirror/ibs/ /srv/mirror' "
                             sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_azure_public} 'sudo rsync -a /srv/mirror/download/ibs/ /srv/mirror' || true"
@@ -162,7 +162,7 @@ def run(params) {
                 }
             } else {
                 stage("Get mirror private IP") {
-                    env.mirror_hostname_azure_private = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.azure_mirrors_private_name.value[0]' ",
+                    env.mirror_hostname_azure_private = sh(script: "cat ${azure_dir}/terraform.tfstate | jq -r '.outputs.azure_mirrors_private_name.value[0]' ",
                             returnStdout: true).trim()
                 }
             }
