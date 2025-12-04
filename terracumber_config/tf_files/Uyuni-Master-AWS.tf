@@ -163,6 +163,7 @@ module "cucumber_testsuite" {
       container_tag = "latest"
       helm_chart_url = "oci://registry.opensuse.org/systemsmanagement/uyuni/master/charts/uyuni/server"
       login_timeout = 28800
+      install_salt_bundle     = false
     }
     proxy_containerized = {
       image = "tumbleweedo"
@@ -174,6 +175,7 @@ module "cucumber_testsuite" {
       runtime = "podman"
       container_repository = "registry.opensuse.org/systemsmanagement/uyuni/master/containerfile"
       container_tag = "latest"
+      install_salt_bundle     = false
     }
     suse_minion = {
       image = "tumbleweedo"
@@ -182,6 +184,7 @@ module "cucumber_testsuite" {
         private_ip = "172.16.3.8"
         overwrite_fqdn = "uyuni-master-suse-minion.sumaci.aws"
       }
+      install_salt_bundle     = false
     }
     suse_sshminion = {
       image = "tumbleweedo"
