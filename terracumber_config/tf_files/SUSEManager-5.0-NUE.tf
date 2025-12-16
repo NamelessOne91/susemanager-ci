@@ -121,7 +121,7 @@ module "cucumber_testsuite" {
   cc_ptf_username = var.SCC_PTF_USER
   cc_ptf_password = var.SCC_PTF_PASSWORD
 
-  images = ["rocky8o", "opensuse155o", "opensuse156o", "ubuntu2404o", "sles15sp7o", "slemicro55o"]
+  images = ["rocky8o", "opensuse155o", "opensuse156o", "ubuntu2404o", "sles15sp4o", "sles15sp7o", "slemicro55o"]
 
   use_avahi    = false
   name_prefix  = "suma-ci-50-"
@@ -234,7 +234,7 @@ module "cucumber_testsuite" {
       }
     }
     kvm_host = {
-      image = "sles15sp7o"
+      image = "sles15sp4o"
       provider_settings = {
         mac = "aa:b2:93:01:00:fe"
         vcpu = 4
