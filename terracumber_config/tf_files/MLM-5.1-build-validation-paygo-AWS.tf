@@ -214,6 +214,7 @@ module "server" {
   publish_private_ssl_key        = false
   use_os_released_updates        = false
   disable_download_tokens        = false
+  forward_registration           = true
   large_deployment               = true
   provision                      = true
   install_salt_bundle            = false
