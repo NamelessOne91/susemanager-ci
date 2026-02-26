@@ -227,6 +227,7 @@ module "server" {
   use_os_released_updates        = false
   disable_download_tokens        = false
   large_deployment               = true
+  forward_registration           = true
   provision                      = true
   install_salt_bundle            = false
   ssh_key_path            = "./salt/controller/id_ed25519.pub"
