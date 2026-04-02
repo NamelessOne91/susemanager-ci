@@ -84,14 +84,14 @@ ENVIRONMENT_CONFIGURATION = {
     mac  = "aa:b2:92:42:01:23"
     name = "oracle9-minion"
   }
-  amazon2023_minion = {
-    mac  = "aa:b2:92:42:01:24"
-    name = "amazon2023-minion"
-  }
-  liberty9_minion = {
-    mac  = "aa:b2:92:42:01:25"
-    name = "liberty9-minion"
-  }
+  # amazon2023_minion = {
+  #   mac  = "aa:b2:92:42:01:24"
+  #   name = "amazon2023-minion"
+  # }
+  # liberty9_minion = {
+  #   mac  = "aa:b2:92:42:01:25"
+  #   name = "liberty9-minion"
+  # }
   ubuntu2204_minion = {
     mac  = "aa:b2:92:42:01:1b"
     name = "ubuntu2204-minion"
@@ -202,14 +202,14 @@ ENVIRONMENT_CONFIGURATION = {
     mac  = "aa:b2:92:42:01:43"
     name = "oracle9-sshminion"
   }
-  amazon2023_sshminion = {
-    mac  = "aa:b2:92:42:01:44"
-    name = "amazon2023-sshminion"
-  }
-  liberty9_sshminion = {
-    mac  = "aa:b2:92:42:01:45"
-    name = "liberty9-sshminion"
-  }
+  # amazon2023_sshminion = {
+  #   mac  = "aa:b2:92:42:01:44"
+  #   name = "amazon2023-sshminion"
+  # }
+  # liberty9_sshminion = {
+  #   mac  = "aa:b2:92:42:01:45"
+  #   name = "liberty9-sshminion"
+  # }
   ubuntu2204_sshminion = {
     mac  = "aa:b2:92:42:01:3b"
     name = "ubuntu2204-sshminion"
