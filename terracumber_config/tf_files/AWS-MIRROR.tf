@@ -152,7 +152,7 @@ resource "aws_iam_instance_profile" "mirror_profile" {
 
 # --- EC2 INSTANCE (THE MIRROR) ---
 resource "aws_instance" "mirror_host" {
-  ami                  = data.aws_ami.opensuse.id
+  ami                  = data.aws_ami.opensuse160o.id
   instance_type        = "t3.medium"
   subnet_id            = aws_subnet.mirror_subnet.id
   vpc_security_group_ids = [aws_security_group.mirror_sg.id]
