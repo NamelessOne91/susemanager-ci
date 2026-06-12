@@ -1,13 +1,12 @@
 terraform {
   required_version = ">= 1.6.0"
   required_providers {
-    aws  = {
+    aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
   }
 }
-
 
 # --- CONFIGURATION VARIABLES ---
 variable "AWS_REGION" {
@@ -22,14 +21,25 @@ variable "AWS_AVAILABILITY_ZONE" {
   description = "The exact Availability Zone for the subnet and instance"
 }
 
+variable "DEPLOY_NAT" {
+  type        = bool
+  default     = false
+  description = "Set to true during sync windows to provision an outbound internet path"
+}
+
 variable "MIRROR_VPC_CIDR" {
-  type        = string
-  default     = "172.17.255.240/28"
+  type    = string
+  default = "172.17.255.0/24"
+}
+
+variable "MIRROR_PRIVATE_SUBNET_CIDR" {
+  type    = string
+  default = "172.17.255.240/28"
 }
 
 variable "MIRROR_PRIVATE_IP" {
-  type        = string
-  default     = "172.17.255.244"
+  type    = string
+  default = "172.17.255.244"
 }
 
 variable "PEER_VPC_CIDR" {
@@ -50,10 +60,16 @@ variable "SSH_KEY" {
   description = "The exact name of the SSH Key Pair that already exists in your AWS account region"
 }
 
+variable "ALLOWED_IPS" {
+  type    = list(string)
+  default = []
+}
+
 provider "aws" {
   region = var.AWS_REGION
 }
 
+# --- AMI LOOKUP ---
 data "aws_ami" "opensuse160o" {
   most_recent = true
   name_regex  = "^openSUSE-Leap-16-0-"
@@ -75,52 +91,66 @@ data "aws_ami" "opensuse160o" {
   }
 }
 
-# --- STABLE NETWORKING LAYER ---
+# --- NETWORKING LAYER ---
 resource "aws_vpc" "mirror_vpc" {
   cidr_block           = var.MIRROR_VPC_CIDR
   enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
-    Name = "${var.NAME_PREFIX}-isolated-vpc"
+    Name = "${var.NAME_PREFIX}-vpc"
   }
 }
 
 resource "aws_subnet" "mirror_subnet" {
   vpc_id                  = aws_vpc.mirror_vpc.id
-  cidr_block              = var.MIRROR_VPC_CIDR
+  cidr_block              = var.MIRROR_PRIVATE_SUBNET_CIDR
   availability_zone       = var.AWS_AVAILABILITY_ZONE
-  map_public_ip_on_launch = false # Strictly no public IP generation
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "${var.NAME_PREFIX}-private-subnet"
   }
 }
 
-# --- SECURE FIREWALL (SECURITY GROUP) ---
+resource "aws_route_table" "private_rt" {
+  vpc_id = aws_vpc.mirror_vpc.id
+  tags   = { Name = "${var.NAME_PREFIX}-private-rt" }
+}
+
+resource "aws_route_table_association" "private_assoc" {
+  subnet_id      = aws_subnet.mirror_subnet.id
+  route_table_id = aws_route_table.private_rt.id
+}
+
 resource "aws_security_group" "mirror_sg" {
   name        = "${var.NAME_PREFIX}-secure-sg"
-  description = "Allow SSM connectivity and out-of-band traffic to worker VMs"
+  description = "Allow direct SSH traffic and out-of-band traffic to worker VMs"
   vpc_id      = aws_vpc.mirror_vpc.id
 
-  # Inbound is empty by default (No open inbound ports to the world)
-
-  # Outbound Rule 1: HTTPS for SSM Agent connectivity to AWS API
-  egress {
-    from_port   = 443
-    to_port     = 443
+  ingress {
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Required for outbound SSM connectivity"
+    cidr_blocks = var.ALLOWED_IPS
+    description = "SSH access from custom pipeline networks or administrators"
   }
 
-  # Outbound Rule 2: Open all ports strictly to your dynamic worker VMs
   egress {
     from_port   = 0
     to_port     = 0
-    protocol    = "-1" # -1 means all protocols
+    protocol    = "-1"
     cidr_blocks = [var.PEER_VPC_CIDR]
     description = "Allows data mirroring to the dynamic worker VPC"
+  }
+
+  # (Only functions when DEPLOY_NAT is active, otherwise traffic hits a wall)
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allows outbound mirror acquisition over the temporary NAT"
   }
 
   tags = {
@@ -128,92 +158,49 @@ resource "aws_security_group" "mirror_sg" {
   }
 }
 
-resource "aws_security_group" "endpoints_sg" {
-  name        = "${var.NAME_PREFIX}-endpoints-sg"
-  description = "Allows interface traffic from the mirror instance on HTTPS"
-  vpc_id      = aws_vpc.mirror_vpc.id
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [var.MIRROR_VPC_CIDR]
-  }
-
-  tags = {
-    Name = "${var.NAME_PREFIX}-endpoints-sg"
-  }
+# --- CONDITIONAL INTERNET INFRASTRUCTURE (NAT LAYER) ---
+resource "aws_internet_gateway" "igw" {
+  count  = var.DEPLOY_NAT ? 1 : 0
+  vpc_id = aws_vpc.mirror_vpc.id
+  tags   = { Name = "${var.NAME_PREFIX}-igw" }
 }
 
-resource "aws_vpc_endpoint" "ssm" {
-  vpc_id              = aws_vpc.mirror_vpc.id
-  service_name        = "com.amazonaws.${var.AWS_REGION}.ssm"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.mirror_subnet.id]
-  security_group_ids  = [aws_security_group.endpoints_sg.id]
-  private_dns_enabled = true
-  tags                = { Name = "${var.NAME_PREFIX}-ssm-endpoint" }
+resource "aws_subnet" "public_subnet" {
+  count             = var.DEPLOY_NAT ? 1 : 0
+  vpc_id            = aws_vpc.mirror_vpc.id
+  cidr_block        = "172.17.255.0/28" 
+  availability_zone = var.AWS_AVAILABILITY_ZONE
+  tags              = { Name = "${var.NAME_PREFIX}-public-subnet" }
 }
 
-resource "aws_vpc_endpoint" "ssmmessages" {
-  vpc_id              = aws_vpc.mirror_vpc.id
-  service_name        = "com.amazonaws.${var.AWS_REGION}.ssmmessages"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.mirror_subnet.id]
-  security_group_ids  = [aws_security_group.endpoints_sg.id]
-  private_dns_enabled = true
-  tags                = { Name = "${var.NAME_PREFIX}-ssmmessages-endpoint" }
+resource "aws_eip" "nat_eip" {
+  count  = var.DEPLOY_NAT ? 1 : 0
+  domain = "vpc"
+  depends_on = [aws_internet_gateway.igw]
 }
 
-resource "aws_vpc_endpoint" "ec2messages" {
-  vpc_id              = aws_vpc.mirror_vpc.id
-  service_name        = "com.amazonaws.${var.AWS_REGION}.ec2messages"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.mirror_subnet.id]
-  security_group_ids  = [aws_security_group.endpoints_sg.id]
-  private_dns_enabled = true
-  tags                = { Name = "${var.NAME_PREFIX}-ec2messages-endpoint" }
+resource "aws_nat_gateway" "nat" {
+  count         = var.DEPLOY_NAT ? 1 : 0
+  allocation_id = aws_eip.nat_eip[0].id
+  subnet_id     = aws_subnet.public_subnet[0].id
+  tags          = { Name = "${var.NAME_PREFIX}-nat-gw" }
 }
 
-# --- IAM INSTANCE PROFILE FOR NATIVE SSM ACCESS ---
-resource "aws_iam_role" "ssm_role" {
-  name = "${var.NAME_PREFIX}-ec2-ssm-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ssm_attach" {
-  role       = aws_iam_role.ssm_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_instance_profile" "mirror_profile" {
-  name = "${var.NAME_PREFIX}-instance-profile"
-  role = aws_iam_role.ssm_role.name
+resource "aws_route" "private_internet_out" {
+  count                  = var.DEPLOY_NAT ? 1 : 0
+  route_table_id         = aws_route_table.private_rt.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat[0].id
 }
 
 # --- EC2 INSTANCE (THE MIRROR) ---
 resource "aws_instance" "mirror_host" {
-  ami                  = data.aws_ami.opensuse160o.id
-  instance_type        = "t3.medium"
-  subnet_id            = aws_subnet.mirror_subnet.id
+  ami                    = data.aws_ami.opensuse160o.id
+  instance_type          = "t3.medium"
+  subnet_id              = aws_subnet.mirror_subnet.id
   vpc_security_group_ids = [aws_security_group.mirror_sg.id]
-  iam_instance_profile = aws_iam_instance_profile.mirror_profile.id
-  
-  private_ip = var.MIRROR_PRIVATE_IP
-
-  key_name   = var.SSH_KEY
+  private_ip             = var.MIRROR_PRIVATE_IP
+  key_name               = var.SSH_KEY
 
   root_block_device {
     volume_size           = 500
@@ -221,26 +208,15 @@ resource "aws_instance" "mirror_host" {
     delete_on_termination = true
   }
 
-  # User-Data script to download and wire up the SSM agent on openSUSE bootup
-  user_data = <<-EOF
-              #!/bin/bash
-              mkdir /tmp/ssm
-              cd /tmp/ssm
-              wget https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-              zypper --non-interactive install amazon-ssm-agent.rpm
-              systemctl enable amazon-ssm-agent
-              systemctl start amazon-ssm-agent
-              EOF
-
   tags = {
     Name = "${var.NAME_PREFIX}-host"
   }
 }
 
-# --- RELIABLE STANDARD OUTPUTS ---
+# --- OUTPUTS ---
 output "mirror_instance_id" {
   value       = aws_instance.mirror_host.id
-  description = "The exact AWS ID of the instance for your SSM push script"
+  description = "The exact AWS ID of the instance"
 }
 
 output "mirror_private_ip" {

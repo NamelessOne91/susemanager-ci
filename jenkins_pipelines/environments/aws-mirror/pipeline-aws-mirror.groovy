@@ -25,6 +25,7 @@ def run(params) {
                     echo "Applying OpenTofu Configuration..."
                     sh """
                         cd ${tf_isolated_dir} && ${params.bin_path} apply -auto-approve \
+                            -var="DEPLOY_NAT=${params.must_sync_mirror}" \
                             -var="AWS_REGION=${params.aws_region}" \
                             -var="AWS_AVAILABILITY_ZONE=${params.aws_availability_zone}" \
                             -var="NAME_PREFIX=${params.name_prefix}-" \
@@ -32,6 +33,7 @@ def run(params) {
                             -var="MIRROR_PRIVATE_IP=${params.mirror_private_ip}" \
                             -var="PEER_VPC_CIDR=${params.peer_vpc_cidr}" \
                             -var="SSH_KEY=${params.ssh_key}" \
+                            -var='ALLOWED_IPS=[${params.allowed_ips.split("\n").collect{ "\"${it.trim()}\"" }.join(",")}]'
                     """
                 }
             }
