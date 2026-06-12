@@ -128,6 +128,23 @@ resource "aws_security_group" "mirror_sg" {
   }
 }
 
+resource "aws_security_group" "endpoints_sg" {
+  name        = "${var.NAME_PREFIX}-endpoints-sg"
+  description = "Allows interface traffic from the mirror instance on HTTPS"
+  vpc_id      = aws_vpc.mirror_vpc.id
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.MIRROR_VPC_CIDR]
+  }
+
+  tags = {
+    Name = "${var.NAME_PREFIX}-endpoints-sg"
+  }
+}
+
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = aws_vpc.mirror_vpc.id
   service_name        = "com.amazonaws.${var.AWS_REGION}.ssm"
