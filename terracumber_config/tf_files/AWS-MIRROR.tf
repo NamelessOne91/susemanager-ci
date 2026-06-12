@@ -44,6 +44,12 @@ variable "NAME_PREFIX" {
   description = "A prefix for all resource names to easily identify them in the AWS console"
 }
 
+variable "SSH_KEY" {
+  type        = string
+  default     = "testing-suma"
+  description = "The exact name of the SSH Key Pair that already exists in your AWS account region"
+}
+
 provider "aws" {
   region = var.AWS_REGION
 }
@@ -76,7 +82,7 @@ resource "aws_vpc" "mirror_vpc" {
   enable_dns_support   = true
 
   tags = {
-    Name = "mirror-isolated-vpc"
+    Name = "${var.NAME_PREFIX}-isolated-vpc"
   }
 }
 
@@ -122,6 +128,36 @@ resource "aws_security_group" "mirror_sg" {
   }
 }
 
+resource "aws_vpc_endpoint" "ssm" {
+  vpc_id              = aws_vpc.mirror_vpc.id
+  service_name        = "com.amazonaws.${var.AWS_REGION}.ssm"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.mirror_subnet.id]
+  security_group_ids  = [aws_security_group.endpoints_sg.id]
+  private_dns_enabled = true
+  tags                = { Name = "${var.NAME_PREFIX}-ssm-endpoint" }
+}
+
+resource "aws_vpc_endpoint" "ssmmessages" {
+  vpc_id              = aws_vpc.mirror_vpc.id
+  service_name        = "com.amazonaws.${var.AWS_REGION}.ssmmessages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.mirror_subnet.id]
+  security_group_ids  = [aws_security_group.endpoints_sg.id]
+  private_dns_enabled = true
+  tags                = { Name = "${var.NAME_PREFIX}-ssmmessages-endpoint" }
+}
+
+resource "aws_vpc_endpoint" "ec2messages" {
+  vpc_id              = aws_vpc.mirror_vpc.id
+  service_name        = "com.amazonaws.${var.AWS_REGION}.ec2messages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.mirror_subnet.id]
+  security_group_ids  = [aws_security_group.endpoints_sg.id]
+  private_dns_enabled = true
+  tags                = { Name = "${var.NAME_PREFIX}-ec2messages-endpoint" }
+}
+
 # --- IAM INSTANCE PROFILE FOR NATIVE SSM ACCESS ---
 resource "aws_iam_role" "ssm_role" {
   name = "${var.NAME_PREFIX}-ec2-ssm-role"
@@ -160,7 +196,8 @@ resource "aws_instance" "mirror_host" {
   
   private_ip = var.MIRROR_PRIVATE_IP
 
-  # Size the storage disk space directly
+  key_name   = var.SSH_KEY
+
   root_block_device {
     volume_size           = 500
     volume_type           = "gp3"

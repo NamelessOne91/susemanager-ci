@@ -30,7 +30,8 @@ def run(params) {
                             -var="NAME_PREFIX=${params.name_prefix}-" \
                             -var="MIRROR_VPC_CIDR=${params.mirror_vpc_cidr}" \
                             -var="MIRROR_PRIVATE_IP=${params.mirror_private_ip}" \
-                            -var="PEER_VPC_CIDR=${params.peer_vpc_cidr}"
+                            -var="PEER_VPC_CIDR=${params.peer_vpc_cidr}" \
+                            -var="SSH_KEY=${params.ssh_key}" \
                     """
                 }
             }
