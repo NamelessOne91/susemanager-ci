@@ -8,10 +8,9 @@ def run(params) {
         GString sumaform_dir = "${resultdir}/sumaform"
         def awscli = '/usr/local/bin/aws'
         def node_user = 'jenkins'
-        def build_validation = true
+        
         env.exports = "export BUILD_NUMBER=${BUILD_NUMBER}; export BUILD_VALIDATION=true; export CUCUMBER_PUBLISH_QUIET=true;"
 
-        def ssh_option = '-o StrictHostKeyChecking=no -o ConnectTimeout=7200 -o ServerAliveInterval=60'
         String server_ami = params.server_ami ?: ""
         String proxy_ami  = params.proxy_ami ?: ""
 
