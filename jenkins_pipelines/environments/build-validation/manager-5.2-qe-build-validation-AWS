@@ -39,6 +39,7 @@ node('sumaform-cucumber') {
             booleanParam(name: 'must_deploy', defaultValue: true, description: 'Deploy on AWS'),
             booleanParam(name: 'must_cleanup_env', defaultValue: false, description: 'Cleanup AWS environment (run terraform/tofu destroy)'),
             booleanParam(name: 'confirm_cleanup', defaultValue: false, description: 'Confirm AWS environment cleanup'),
+            string(name: 'mirror', defaultValue: '', description: 'Mirror instance to use, if any'),
             string(name: 'server_ami', defaultValue: '', description: 'Specify the server ami image if not using the default search'),
             string(name: 'proxy_ami', defaultValue: '', description: 'Specify the proxy ami image if not using the default search'),
             choice(name: 'architecture', choices: ['x86_64', 'arm64'], description: 'Server and Proxy architecture'),
