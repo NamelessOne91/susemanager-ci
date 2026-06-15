@@ -34,12 +34,17 @@ variable "MIRROR_VPC_CIDR" {
 
 variable "MIRROR_PRIVATE_SUBNET_CIDR" {
   type    = string
-  default = "172.17.255.240/28"
+  default = "172.17.255.0/28"
+}
+
+variable "MIRROR_PUBLIC_SUBNET_CIDR" {
+  type    = string
+  default = "172.17.255.16/28"
 }
 
 variable "MIRROR_PRIVATE_IP" {
   type    = string
-  default = "172.17.255.244"
+  default = "172.17.255.4"
 }
 
 variable "PEER_VPC_CIDR" {
