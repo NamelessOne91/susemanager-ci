@@ -7,14 +7,10 @@ node('sumaform-cucumber') {
         parameters([
             string(name: 'aws_region', defaultValue: 'eu-west-1', description: 'Describe the AWS region where to setup the mirror host'),
             string(name: 'aws_availability_zone', defaultValue: 'eu-west-1a', description: 'Describe the AWS availability zone inside the region'),
-            string(name: 'mirror_vpc_cidr', defaultValue: '172.17.255.240/28', description: 'The CIDR block for the mirror VPC'),
-            string(name: 'mirror_private_ip', defaultValue: '172.17.255.244', description: 'The private IP address for the mirror host'),
-            string(name: 'peer_vpc_cidr', defaultValue: '172.16.0.0/16', description: 'The CIDR block for the peer VPC'),
             string(name: 'name_prefix', defaultValue: 'qe-testing-mirror', description: 'The name prefix for resources'),
             string(name: 'ssh_key', defaultValue: 'testing-suma', description: 'The name of the SSH key pair to access the mirror host'),
             text(name: 'allowed_ips', defaultValue: '195.135.223.0/24', description: 'Add the public IPs to add to AWS ingress security group ( keep default Jenkins address ) separated by new line' ),
             booleanParam(name: 'must_deploy', defaultValue: true, description: 'Deploy on AWS'),
-            booleanParam(name: 'must_sync_mirror', defaultValue: false, description: 'Use AWS SSM to rsync data to the specified AWS mirror'),
             booleanParam(name: 'must_cleanup_env', defaultValue: false, description: 'Cleanup AWS environment (run terraform/tofu destroy)'),
             booleanParam(name: 'confirm_cleanup', defaultValue: false, description: 'Confirm AWS environment cleanup'),
         ])

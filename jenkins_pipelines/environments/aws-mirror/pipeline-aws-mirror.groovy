@@ -1,21 +1,26 @@
 def run(params) {
     timestamps {
-        def tf_source_dir = "${WORKSPACE}/susemanager-ci/terracumber_config/tf_files"
-        // Target an isolated build directory so OpenTofu only sees our mirror files
-        def tf_isolated_dir = "${WORKSPACE}/results/isolated_mirror_build"
+        env.resultdir = "${WORKSPACE}/results"
+        env.resultdirbuild = "${resultdir}/${BUILD_NUMBER}"
+        GString aws_mirror_dir = "${resultdir}/sumaform-aws"
+
         def awscli = '/usr/local/bin/aws'
         def node_user = 'jenkins'
 
+        env.common_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/${params.tf_file} --gitfolder ${aws_mirror_dir} --bastion_ssh_key ${params.key_file} --terraform-bin ${params.bin_path}"
+
         try {
-            stage('Clone susemanager-ci') {
+            stage('Clone terracumber, susemanager-ci and sumaform') {
+                // Create a directory to place the directory with the build results (if it does not exist)
+                sh "mkdir -p ${resultdir}"
+                git url: params.terracumber_gitrepo, branch: params.terracumber_ref
                 dir("susemanager-ci") {
                     checkout scm
                 }
-                sh """
-                    mkdir -p ${tf_isolated_dir}
-                    cp ${tf_source_dir}/${params.tf_file} ${tf_isolated_dir}/main.tf
-                """
+                // Clone sumaform for aws
+                sh "./terracumber-cli ${common_params} --gitrepo ${params.sumaform_gitrepo} --gitref ${params.sumaform_ref} --runstep gitsync --sumaform-backend aws"
             }
+
 
             if (params.must_deploy) {
                 stage("Deploy AWS mirror") {
