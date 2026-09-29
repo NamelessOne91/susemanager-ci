@@ -568,7 +568,7 @@ module "controller" {
   sles15sp6_paygo_minion_configuration       = length(module.sles15sp6_paygo_minion) > 0 ? module.sles15sp6_paygo_minion[0].configuration : local.empty_minion_config
   sles15sp7_paygo_minion_configuration       = length(module.sles15sp7_paygo_minion) > 0 ? module.sles15sp7_paygo_minion[0].configuration : local.empty_minion_config
   sles160_paygo_minion_configuration         = length(module.sles160_paygo_minion) > 0 ? module.sles160_paygo_minion[0].configuration : local.empty_minion_config
-  sleforsap15sp5_paygo_minion_configuration = length(module.slesforsap15sp5_paygo_minion) > 0 ? module.slesforsap15sp5_paygo_minion[0].configuration : local.empty_minion_config
+  slesforsap15sp5_paygo_minion_configuration = length(module.slesforsap15sp5_paygo_minion) > 0 ? module.slesforsap15sp5_paygo_minion[0].configuration : local.empty_minion_config
 
   sles12sp5_minion_configuration     = length(module.sles12sp5_minion) > 0 ? module.sles12sp5_minion[0].configuration : local.empty_minion_config
   sles12sp5_sshminion_configuration  = length(module.sles12sp5_sshminion) > 0 ? module.sles12sp5_sshminion[0].configuration : local.empty_minion_config
