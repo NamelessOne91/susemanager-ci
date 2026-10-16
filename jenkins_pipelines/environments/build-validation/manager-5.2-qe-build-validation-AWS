@@ -70,5 +70,8 @@ node('sumaform-cucumber') {
     mutableParams.bin_plugins_path = "/usr/bin"
 
     def pipeline = load "jenkins_pipelines/environments/common/pipeline-build-validation-aws.groovy"
-    pipeline.run(mutableParams)
+
+    withCredentials([file(credentialsId: 'aws-secrets', variable: 'AWS_SHARED_CREDENTIALS_FILE')]) {
+        pipeline.run(mutableParams)
+    }
 }
