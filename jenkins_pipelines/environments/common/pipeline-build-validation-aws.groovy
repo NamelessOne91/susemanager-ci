@@ -4,13 +4,11 @@ def run(params) {
             def deployed = false
             env.resultdir = "${WORKSPACE}/results"
             env.resultdirbuild = "${resultdir}/${BUILD_NUMBER}"
-            // The junit plugin doesn't affect full paths
-            def junit_resultdir = "${resultdirbuild}/results_junit"
+            // Read from getNodesHandler(), which only sees the job parameters
+            env.terraform_bin = params.bin_path
             def local_mirror_dir = "${resultdir}/sumaform-local"
             GString aws_mirror_dir = "${resultdir}/sumaform-aws"
-            def awscli = '/usr/local/bin/aws'
             def node_user = 'jenkins'
-            def build_validation = true
             env.exports = "export BUILD_NUMBER=${BUILD_NUMBER}; export BUILD_VALIDATION=true; export CUCUMBER_PUBLISH_QUIET=true;"
 
             // Inactivity timeout: kills a cucumber run that has stopped producing output entirely.
@@ -36,19 +34,25 @@ def run(params) {
             String server_ami = params.server_ami ?: ""
             String proxy_ami = params.proxy_ami ?: ""
 
-            //Deployment variables
-            def deployed_local = false
-            deployed = false
+            // The new Jenkins has no /home/jenkins/.credentials nor /home/jenkins/.registration on its agents: the same
+            // content is provided by the sumaform-secrets and sumaform-registration-secrets credentials and sourced from temporary files.
+            def credInit = 'set +x; credFile=$(mktemp); echo "$SECRET_CONTENT" > "${credFile}"; echo "$REGISTRATION_CONTENT" >> "${credFile}"; chmod 600 "${credFile}"; . "${credFile}"; rm -f "${credFile}"; set -x'
+            def withCreds = { Closure body ->
+                withCredentials([string(credentialsId: 'sumaform-secrets', variable: 'SECRET_CONTENT'),
+                                 string(credentialsId: 'sumaform-registration-secrets', variable: 'REGISTRATION_CONTENT')]) { body() }
+            }
 
             GString tfvarsPrepareScript = "${WORKSPACE}/susemanager-ci/jenkins_pipelines/scripts/tf_vars_generator/prepare_tfvars.py"
             String mirror_hostname_aws_private = ""
 
             // Declare lock resource use during node bootstrap
-            def mgrCreateBootstrapRepo = 'share resource to avoid running mgr create bootstrap repo in parallel'
+            // No 'def': it is read from clientTestingStages().
+            mgrCreateBootstrapRepo = 'share resource to avoid running mgr create bootstrap repo in parallel'
             // Variables to store none critical stage run status
             def monitoring_stage_result_fail = false
             def client_stage_result_fail = false
             def client_paygo_stage_result_fail = false
+            def paygo_testing_stage_result_fail = false
             def products_and_salt_migration_stage_result_fail = false
             def retail_stage_result_fail = false
             // Version passed to maintenance_json_generator.py: it has no default anymore,
@@ -126,8 +130,9 @@ def run(params) {
                                         writeFile file: "${local_mirror_dir}/salt/mirror/etc/minima-customize.yaml", text: repositories, encoding: "UTF-8"
 
                                         // Deploy local mirror
-                                        sh "set +x; source /home/jenkins/.credentials set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${local_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-local.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend libvirt"
-                                        deployed_local = true
+                                        withCreds {
+                                            sh "${credInit}; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${local_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-local.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend libvirt"
+                                        }
                                     }
                                 },
                                 "create_empty_aws_mirror": {
@@ -148,7 +153,9 @@ def run(params) {
                                         env.aws_configuration = aws_configuration + "]\n"
                                         writeFile file: "${aws_mirror_dir}/terraform.tfvars", text: aws_configuration, encoding: "UTF-8"
                                         // Deploy empty AWS mirror
-                                        sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${aws_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-aws.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend aws"
+                                        withCreds {
+                                            sh "${credInit}; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${aws_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-aws.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend aws"
+                                        }
                                     }
                                 }
                         )
@@ -162,25 +169,22 @@ def run(params) {
                             mirror_hostname_aws_private = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.aws_mirrors_private_name.value[0]' ",
                                     returnStdout: true).trim()
 
-                            if (params.prepare_aws_env) {
-                                def user = 'root'
-                                sh "ssh-keygen -R ${mirror_address_local} -f /home/${node_user}/.ssh/known_hosts"
-                                def mirror_address_scp = mirror_address_local
-                                // IPv6 addresses need to be enclosed in [ ] to not be interpreted as hostnames by scp
-                                if (mirror_address_scp.contains(":")) {
-                                    mirror_address_scp = "[${mirror_address_scp}]"
-                                }
-                                sh "scp ${ssh_option} ${params.key_file} ${user}@${mirror_address_scp}:/root/testing-suma.pem"
-                                sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'chmod 0400 /root/testing-suma.pem'"
-                                sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'tar -czvf mirror.tar.gz -C /srv/mirror/ .'"
-                                sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'scp ${ssh_option} -i /root/testing-suma.pem /root/mirror.tar.gz ec2-user@${mirror_hostname_aws_public}:/home/ec2-user/' "
-                                sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo tar -xvf /home/ec2-user/mirror.tar.gz -C /srv/mirror/' "
-                                sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rsync -a /srv/mirror/ibs/ /srv/mirror' "
-                                sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rsync -a /srv/mirror/download/ibs/ /srv/mirror' || true"
-                                sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rm -rf /srv/mirror/ibs' "
-                                sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rm -rf /srv/mirror/download/ibs' "
+                            def user = 'root'
+                            sh "ssh-keygen -R ${mirror_address_local} -f /home/${node_user}/.ssh/known_hosts"
+                            def mirror_address_scp = mirror_address_local
+                            // IPv6 addresses need to be enclosed in [ ] to not be interpreted as hostnames by scp
+                            if (mirror_address_scp.contains(":")) {
+                                mirror_address_scp = "[${mirror_address_scp}]"
                             }
-
+                            sh "scp ${ssh_option} ${params.key_file} ${user}@${mirror_address_scp}:/root/testing-suma.pem"
+                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'chmod 0400 /root/testing-suma.pem'"
+                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'tar -czvf mirror.tar.gz -C /srv/mirror/ .'"
+                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'scp ${ssh_option} -i /root/testing-suma.pem /root/mirror.tar.gz ec2-user@${mirror_hostname_aws_public}:/home/ec2-user/' "
+                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo tar -xvf /home/ec2-user/mirror.tar.gz -C /srv/mirror/' "
+                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rsync -a /srv/mirror/ibs/ /srv/mirror' "
+                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rsync -a /srv/mirror/download/ibs/ /srv/mirror' || true"
+                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rm -rf /srv/mirror/ibs' "
+                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rm -rf /srv/mirror/download/ibs' "
                         }
                     }
                 } else {
@@ -213,8 +217,9 @@ def run(params) {
                         // Deploying AWS server using MU repositories
                         sh "python3 ${tfvarsPrepareScript} ${scriptArgs}"
 
-                        sh "echo \"export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-aws.log --init --taint '.*(domain|main_disk).*' --runstep provision --custom-repositories ${WORKSPACE}/custom_repositories.json --sumaform-backend aws\""
-                        sh "set +x; source /home/jenkins/.credentials set -x; source /home/jenkins/.registration set -x; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-aws.log --init --taint '.*(domain|main_disk).*' --custom-repositories ${WORKSPACE}/custom_repositories.json --runstep provision --sumaform-backend aws"
+                        withCreds {
+                            sh "${credInit}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${common_params} --logfile ${resultdirbuild}/sumaform-aws.log --init --taint '.*(domain|main_disk).*' --custom-repositories ${WORKSPACE}/custom_repositories.json --runstep provision --sumaform-backend aws"
+                        }
                         deployed = true
 
                     }
@@ -282,7 +287,7 @@ def run(params) {
                 }
                 stage('Create bootstrap repository Proxy') {
                     if (params.must_create_bootstrap_repos && params.enable_proxy_stages) {
-                        echo 'Create bootstrap repository ${node}'
+                        echo 'Create proxy bootstrap repository'
                         if (params.confirm_before_continue) {
                             input 'Press any key to start creating the proxy bootstrap repository'
                         }
@@ -331,6 +336,7 @@ def run(params) {
                             res_paygo_testing = sh(script: "./terracumber-cli ${common_params} --logfile ${resultdirbuild}/testsuite.log --runstep cucumber --cucumber-cmd '${env.exports} cd /root/spacewalk/testsuite; rake cucumber:build_validation_paygo_testing'", returnStatus: true)
                         }
                         echo "PAYGO testing status code: ${res_paygo_testing}"
+                        paygo_testing_stage_result_fail = res_paygo_testing != 0
                     }
                 }
 
@@ -472,7 +478,7 @@ def run(params) {
             }
             finally {
                 stage('Save TF state') {
-                    archiveArtifacts artifacts: "results/sumaform-aws/terraform.tfstate, results/sumaform-aws/.terraform/**/*"
+                    archiveArtifacts artifacts: "results/sumaform-aws/terraform.tfstate, results/sumaform-aws/.terraform/**/*", allowEmptyArchive: true
                 }
 
                 stage('Get results') {
@@ -501,7 +507,6 @@ def run(params) {
                                 reportFiles          : 'index.html',
                                 reportName           : "Build Validation report"]
                         )
-                        // junit allowEmptyResults: true, testResults: "${junit_resultdir}/*.xml", skipPublishingChecks: true
                     }
                     // Send email
                     try {
@@ -515,6 +520,10 @@ def run(params) {
                     // Fail pipeline if paygo client stages failed
                     if (client_paygo_stage_result_fail) {
                         error("Paygo client stage failed")
+                    }
+                    // Fail pipeline if paygo testing failed
+                    if (paygo_testing_stage_result_fail) {
+                        error("Paygo testing stage failed")
                     }
                     // Fail pipeline if client stages failed
                     if (client_stage_result_fail) {
@@ -552,9 +561,14 @@ def clientTestingStages(params, capybara_timeout, default_timeout, minion_type =
     //Get minion list from terraform state list command
     def nodesHandler = getNodesHandler(minion_type)
     def mu_sync_status = nodesHandler.MUSyncStatus
+    def nodesToTest = nodesHandler.nodeList
+    // Paygo nodes are left to the paygo stages when those run, so they are not tested twice
+    if (minion_type == 'default' && params.enable_paygo_stages) {
+        nodesToTest = nodesToTest.findAll { !it.contains('paygo') && !it.contains('byos') }
+    }
 
     // Construct a stage list for each node.
-    nodesHandler.nodeList.each { node ->
+    nodesToTest.each { node ->
         tests["${node}"] = {
             // Generate a temporary list that comprises of all the minions except the one currently undergoing testing.
             // This list is utilized to establish an SSH session exclusively with the minion undergoing testing.
@@ -705,7 +719,7 @@ def getNodesHandler(minionType = 'default') {
     Set<String> nodeList = new HashSet<String>()
     Set<String> envVar = new HashSet<String>()
     def MUSyncStatus = [:]
-    def modules = sh(script: "cd ${resultdir}/sumaform-aws; terraform state list",
+    def modules = sh(script: "cd ${resultdir}/sumaform-aws; ${terraform_bin} state list",
             returnStdout: true)
     String[] moduleList = modules.split("\n")
     moduleList.each { lane ->

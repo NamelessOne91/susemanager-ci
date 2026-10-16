@@ -128,7 +128,6 @@ module "mirror" {
     pool = local.pool
   }
   provider_settings = {
-    mac                = "52:54:00:ba:b7:98"
     memory             = 4096
   }
 }
