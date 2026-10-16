@@ -111,13 +111,10 @@ variable "PROXY_REGISTRATION_CODE" {
   default = null
 }
 
+// Prefix of the shared infrastructure (VPC, subnets, bastion, mirror): server pipelines look it up by this prefix
 variable "NAME_PREFIX" {
   type = string
-  default = "aws-mirror"
-}
-
-locals {
-  domain            = "suma.ci.aws"
+  default = "mlm-bv-aws-"
 }
 
 provider "aws" {
@@ -140,19 +137,14 @@ module "base" {
     ssh_allowed_ips   = var.ALLOWED_IPS
     key_name          = var.KEY_NAME
     key_file          = var.KEY_FILE
-#     route53_domain    = local.domain
-    bastion_host      = "${var.NAME_PREFIX}-bastion.${local.domain}"
   }
 }
 
-
+// The mirror lives in the private subnet: it is reachable from other hosts in the VPC and through the bastion only
 module "mirror" {
   source = "./modules/mirror"
   base_configuration = module.base.configuration
   disable_cron = true
-  provider_settings = {
-    public_instance = true
-  }
   image = "opensuse160o"
 }
 
@@ -163,8 +155,4 @@ output "bastion_public_name" {
 
 output "aws_mirrors_private_name" {
   value = module.mirror.configuration.hostnames
-}
-
-output "aws_mirrors_public_name" {
-  value = module.mirror.configuration.public_names
 }

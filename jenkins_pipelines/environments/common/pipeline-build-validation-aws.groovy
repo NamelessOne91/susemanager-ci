@@ -6,9 +6,7 @@ def run(params) {
             env.resultdirbuild = "${resultdir}/${BUILD_NUMBER}"
             // Read from getNodesHandler(), which only sees the job parameters
             env.terraform_bin = params.bin_path
-            def local_mirror_dir = "${resultdir}/sumaform-local"
-            GString aws_mirror_dir = "${resultdir}/sumaform-aws"
-            def node_user = 'jenkins'
+            GString aws_dir = "${resultdir}/sumaform-aws"
             env.exports = "export BUILD_NUMBER=${BUILD_NUMBER}; export BUILD_VALIDATION=true; export CUCUMBER_PUBLISH_QUIET=true;"
 
             // Inactivity timeout: kills a cucumber run that has stopped producing output entirely.
@@ -30,9 +28,10 @@ def run(params) {
                 withIdleTimeoutOf(cucumberIdleTimeoutMinutes, body)
             }
 
-            def ssh_option = '-o StrictHostKeyChecking=no -o ConnectTimeout=7200 -o ServerAliveInterval=60'
             String server_ami = params.server_ami ?: ""
             String proxy_ami = params.proxy_ami ?: ""
+            // Private hostname of the AWS mirror deployed by manager-5.2-qe-build-validation-AWS-mirror, empty for no mirror
+            String mirror_hostname = params.mirror_hostname?.trim() ?: ""
 
             // The new Jenkins has no /home/jenkins/.credentials nor /home/jenkins/.registration on its agents: the same
             // content is provided by the sumaform-secrets and sumaform-registration-secrets credentials and sourced from temporary files.
@@ -43,7 +42,6 @@ def run(params) {
             }
 
             GString tfvarsPrepareScript = "${WORKSPACE}/susemanager-ci/jenkins_pipelines/scripts/tf_vars_generator/prepare_tfvars.py"
-            String mirror_hostname_aws_private = ""
 
             // Declare lock resource use during node bootstrap
             // No 'def': it is read from clientTestingStages().
@@ -59,22 +57,15 @@ def run(params) {
             // so every environment offering mi_ids has to name the version explicitly.
             def json_generator_version = params.json_generator_version ?: ''
 
-            def local_mirror_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/local_mirror.tf --gitfolder ${local_mirror_dir} --terraform-bin ${params.bin_path}"
-            def aws_mirror_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/aws_mirror.tf --gitfolder ${aws_mirror_dir} --terraform-bin ${params.bin_path}"
-            env.common_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/${params.tf_file} --gitfolder ${aws_mirror_dir} --bastion_ssh_key ${params.key_file} --terraform-bin ${params.bin_path}"
+            env.common_params = "--outputdir ${resultdir} --tf susemanager-ci/terracumber_config/tf_files/${params.tf_file} --gitfolder ${aws_dir} --bastion_ssh_key ${params.key_file} --terraform-bin ${params.bin_path}"
 
             //Capybara configuration
             def capybara_timeout = 30
             def default_timeout = 300
 
             if (params.deploy_parallelism) {
-                local_mirror_params = "${local_mirror_params} --parallelism ${params.deploy_parallelism}"
-                aws_mirror_params = "${aws_mirror_params} --parallelism ${params.deploy_parallelism}"
                 env.common_params = "${common_params} --parallelism ${params.deploy_parallelism}"
             }
-            // Public IP for AWS ingress
-            String[] ALLOWED_IPS = params.allowed_IPS.split("\n")
-
             try {
                 stage('Clone terracumber, susemanager-ci and sumaform') {
                     // Create a directory for  to place the directory with the build results (if it does not exist)
@@ -83,130 +74,52 @@ def run(params) {
                     dir("susemanager-ci") {
                         checkout scm
                     }
-                    // Clone sumaform for aws and local repositories
-                    sh "./terracumber-cli ${local_mirror_params} --gitrepo ${params.sumaform_gitrepo} --gitref ${params.sumaform_ref} --runstep gitsync --sumaform-backend libvirt"
                     sh "./terracumber-cli ${common_params} --gitrepo ${params.sumaform_gitrepo} --gitref ${params.sumaform_ref} --runstep gitsync --sumaform-backend aws"
                 }
 
 
-                if (params.prepare_aws_env) {
-                    stage("Prepare AWS environment") {
-                        parallel(
-                                "create_local_mirror_with_mu": {
-                                    stage("Create local mirror with MU") {
-                                        // Generate custom_repositories.json file in the workspace from the value passed by parameter
-                                        if (params.custom_repositories?.trim()) {
-                                            writeFile file: 'custom_repositories.json', text: params.custom_repositories, encoding: "UTF-8"
-                                        }
-                                        // Generate custom_repositories.json file in the workspace using a Python script - MI Identifiers passed by parameter
-                                        if (params.mi_ids?.trim()) {
-                                            if (!json_generator_version) {
-                                                error("json_generator_version is not set for this environment, cannot generate custom_repositories.json from mi_ids")
-                                            }
-                                            node('manager-jenkins-node') {
-                                                checkout scm
-                                                def res_python_script_ = sh(script: "python3 jenkins_pipelines/scripts/json_generator/maintenance_json_generator.py --version ${json_generator_version} --mi_ids ${params.mi_ids} --no_embargo", returnStatus: true)
-                                                echo "Build Validation JSON script return code:\n ${res_python_script_}"
-                                                if (res_python_script_ != 0) {
-                                                    error("MI IDs (${params.mi_ids}) passed by parameter are wrong, already released or all under embargo")
-                                                }
-                                            }
-                                        }
-                                        // Save MU json into local file
-                                        def mu_repositories = sh(script: "cat ${WORKSPACE}/custom_repositories.json | jq -r ' to_entries[] |  \" \\(.value)\"' | jq -r ' to_entries[] |  \" \\(.value)\"'",
-                                                returnStdout: true)
-                                        // Get the testsuite defaults repositories list
-                                        def repositories = sh(script: "cat ${local_mirror_dir}/salt/mirror/etc/minimum_repositories_testsuite.yaml",
-                                                returnStdout: true)
-                                        if (!mu_repositories.isEmpty()) {
-                                            String[] REPOSITORIES_LIST = mu_repositories.split("\n")
-                                            // Add MU repositories to the repository list
-                                            REPOSITORIES_LIST.each { item ->
-                                                repositories = "${repositories}\n\n" +
-                                                        "  - url: ${item}\n" +
-                                                        "    archs: [x86_64]"
-                                            }
-                                        }
-                                        writeFile file: "${local_mirror_dir}/salt/mirror/etc/minima-customize.yaml", text: repositories, encoding: "UTF-8"
-
-                                        // Deploy local mirror
-                                        withCreds {
-                                            sh "${credInit}; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${local_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-local.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend libvirt"
-                                        }
-                                    }
-                                },
-                                "create_empty_aws_mirror": {
-                                    stage("Create empty AWS mirror") {
-                                        // Fix issue where result folder is created at the same time by local mirror and aws mirror
-                                        sleep(30)
-                                        def NAME_PREFIX = env.JOB_NAME.toLowerCase().replace('.', '-')
-                                        env.aws_configuration = "REGION = \"${params.aws_region}\"\n" +
-                                                "AVAILABILITY_ZONE = \"${params.aws_availability_zone}\"\n" +
-                                                "NAME_PREFIX = \"${NAME_PREFIX}-\"\n" +
-                                                "KEY_FILE = \"${params.key_file}\"\n" +
-                                                "KEY_NAME = \"${params.key_name}\"\n" +
-                                                "ALLOWED_IPS = [ \n"
-
-                                        ALLOWED_IPS.each { ip ->
-                                            env.aws_configuration = aws_configuration + "    \"${ip}\",\n"
-                                        }
-                                        env.aws_configuration = aws_configuration + "]\n"
-                                        writeFile file: "${aws_mirror_dir}/terraform.tfvars", text: aws_configuration, encoding: "UTF-8"
-                                        // Deploy empty AWS mirror
-                                        withCreds {
-                                            sh "${credInit}; export TF_VAR_CUCUMBER_GITREPO=${params.cucumber_gitrepo}; export TF_VAR_CUCUMBER_BRANCH=${params.cucumber_ref}; export TERRAFORM=${params.bin_path}; export TERRAFORM_PLUGINS=${params.bin_plugins_path}; ./terracumber-cli ${aws_mirror_params} --logfile ${resultdirbuild}/sumaform-mirror-aws.log --init --taint '.*(domain|main_disk).*' --runstep provision --sumaform-backend aws"
-                                        }
-                                    }
-                                }
-                        )
-
-                        stage("Upload local mirror data to AWS mirror") {
-                            // Get local and aws hostname
-                            def mirror_address_local = sh(script: "cat ${local_mirror_dir}/terraform.tfstate | jq -r '.outputs.local_mirrors_public_ip.value[0][0]' ",
-                                    returnStdout: true).trim()
-                            def mirror_hostname_aws_public = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.aws_mirrors_public_name.value[0]' ",
-                                    returnStdout: true).trim()
-                            mirror_hostname_aws_private = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.aws_mirrors_private_name.value[0]' ",
-                                    returnStdout: true).trim()
-
-                            def user = 'root'
-                            sh "ssh-keygen -R ${mirror_address_local} -f /home/${node_user}/.ssh/known_hosts"
-                            def mirror_address_scp = mirror_address_local
-                            // IPv6 addresses need to be enclosed in [ ] to not be interpreted as hostnames by scp
-                            if (mirror_address_scp.contains(":")) {
-                                mirror_address_scp = "[${mirror_address_scp}]"
-                            }
-                            sh "scp ${ssh_option} ${params.key_file} ${user}@${mirror_address_scp}:/root/testing-suma.pem"
-                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'chmod 0400 /root/testing-suma.pem'"
-                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'tar -czvf mirror.tar.gz -C /srv/mirror/ .'"
-                            sh "ssh ${ssh_option} ${user}@${mirror_address_local} 'scp ${ssh_option} -i /root/testing-suma.pem /root/mirror.tar.gz ec2-user@${mirror_hostname_aws_public}:/home/ec2-user/' "
-                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo tar -xvf /home/ec2-user/mirror.tar.gz -C /srv/mirror/' "
-                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rsync -a /srv/mirror/ibs/ /srv/mirror' "
-                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rsync -a /srv/mirror/download/ibs/ /srv/mirror' || true"
-                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rm -rf /srv/mirror/ibs' "
-                            sh "ssh ${ssh_option} -i ${params.key_file} ec2-user@${mirror_hostname_aws_public} 'sudo rm -rf /srv/mirror/download/ibs' "
-                        }
-                    }
-                } else {
-                    stage("Get mirror private IP") {
-                        mirror_hostname_aws_private = sh(script: "cat ${aws_mirror_dir}/terraform.tfstate | jq -r '.outputs.aws_mirrors_private_name.value[0]' ",
-                                returnStdout: true).trim()
-                    }
-                }
-
                 if (params.must_deploy) {
                     stage("Deploy AWS with MU") {
-                        int count = 0
+                        // Generate custom_repositories.json file in the workspace from the value passed by parameter
+                        if (params.custom_repositories?.trim()) {
+                            writeFile file: 'custom_repositories.json', text: params.custom_repositories, encoding: "UTF-8"
+                        }
+                        // Generate custom_repositories.json file in the workspace using a Python script - MI Identifiers passed by parameter
+                        if (params.mi_ids?.trim()) {
+                            if (!json_generator_version) {
+                                error("json_generator_version is not set for this environment, cannot generate custom_repositories.json from mi_ids")
+                            }
+                            node('manager-jenkins-node') {
+                                checkout scm
+                                def res_python_script_ = sh(script: "python3 jenkins_pipelines/scripts/json_generator/maintenance_json_generator.py --version ${json_generator_version} --mi_ids ${params.mi_ids} --no_embargo", returnStatus: true)
+                                echo "Build Validation JSON script return code:\n ${res_python_script_}"
+                                if (res_python_script_ != 0) {
+                                    error("MI IDs (${params.mi_ids}) passed by parameter are wrong, already released or all under embargo")
+                                }
+                            }
+                        }
                         // Replace internal repositories by mirror repositories
-                        sh "sed -i 's/download.suse.de/${mirror_hostname_aws_private}/g' ${WORKSPACE}/custom_repositories.json"
-                        sh "sed -i 's/ibs\\///g' ${WORKSPACE}/custom_repositories.json"
+                        if (mirror_hostname && fileExists('custom_repositories.json')) {
+                            sh "sed -i 's/download.suse.de/${mirror_hostname}/g' ${WORKSPACE}/custom_repositories.json"
+                            sh "sed -i 's/ibs\\///g' ${WORKSPACE}/custom_repositories.json"
+                        }
 
-                        def scriptArgs = " --output ${aws_mirror_dir}/terraform.tfvars"
-                        scriptArgs += " --merge-files ${aws_mirror_dir}/terraform.tfvars ${params.deployment_tfvars}"
+                        // Deploy into the shared AWS infrastructure (VPC, private network, bastion) created by the mirror pipeline
+                        def NAME_PREFIX = env.JOB_NAME.toLowerCase().replace('.', '-')
+                        writeFile file: "${aws_dir}/terraform.tfvars", encoding: "UTF-8", text:
+                                "REGION = \"${params.aws_region}\"\n" +
+                                "AVAILABILITY_ZONE = \"${params.aws_availability_zone}\"\n" +
+                                "NAME_PREFIX = \"${NAME_PREFIX}-\"\n" +
+                                "INFRA_NAME_PREFIX = \"${params.infra_name_prefix}\"\n" +
+                                "KEY_FILE = \"${params.key_file}\"\n" +
+                                "KEY_NAME = \"${params.key_name}\"\n"
+
+                        def scriptArgs = " --output ${aws_dir}/terraform.tfvars"
+                        scriptArgs += " --merge-files ${aws_dir}/terraform.tfvars ${params.deployment_tfvars}"
                         scriptArgs += " --inject CUCUMBER_GITREPO=${params.cucumber_gitrepo}"
                         scriptArgs += " --inject CUCUMBER_BRANCH=${params.cucumber_ref}"
                         scriptArgs += " --inject ARCHITECTURE=${params.architecture}"
-                        scriptArgs += " --inject MIRROR=${mirror_hostname_aws_private}"
+                        scriptArgs += " --inject MIRROR=${mirror_hostname}"
                         scriptArgs += " --inject SERVER_AMI=${server_ami}"
                         scriptArgs += " --inject PROXY_AMI=${proxy_ami}"
                         scriptArgs += " --clean --keep-resources ${params.minions_to_run.split(', ').join(' ')}"

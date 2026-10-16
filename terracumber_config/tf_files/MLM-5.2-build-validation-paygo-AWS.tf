@@ -118,14 +118,15 @@ variable "SLES_REGISTRATION_CODE" {
   default = null
 }
 
-variable "ALLOWED_IPS" {
-  type = list(string)
-  default = []
-}
-
 variable "NAME_PREFIX" {
   type = string
   default = null
+}
+
+// Prefix of the shared infrastructure deployed by aws_mirror.tf (manager-5.2-qe-build-validation-AWS-mirror)
+variable "INFRA_NAME_PREFIX" {
+  type = string
+  default = "mlm-bv-aws-"
 }
 
 variable "SERVER_AMI" {
@@ -171,13 +172,38 @@ provider "aws" {
   region     = var.REGION
 }
 
+// Look up the VPC, subnets, security groups and bastion created by aws_mirror.tf
+data "aws_vpc" "infra" {
+  tags = { Name = "${var.INFRA_NAME_PREFIX}vpc" }
+}
+
+data "aws_subnet" "infra" {
+  for_each = toset(["public", "private", "private-additional"])
+  vpc_id   = data.aws_vpc.infra.id
+  tags     = { Name = "${var.INFRA_NAME_PREFIX}${each.key}-subnet" }
+}
+
+data "aws_security_group" "infra" {
+  for_each = toset(["public", "private", "private-additional"])
+  vpc_id   = data.aws_vpc.infra.id
+  tags     = { Name = "${var.INFRA_NAME_PREFIX}${each.key}-security-group" }
+}
+
+data "aws_instance" "bastion" {
+  instance_tags = { Name = "${var.INFRA_NAME_PREFIX}bastion" }
+  filter {
+    name   = "instance-state-name"
+    values = ["running"]
+  }
+}
+
 module "base" {
   source                   = "./modules/base"
   product_version          = "5.2-released"
   cc_username              = var.SCC_USER
   cc_password              = var.SCC_PASSWORD
   name_prefix              = var.NAME_PREFIX
-  mirror                   = var.MIRROR
+  mirror                   = var.MIRROR != "" ? var.MIRROR : null
   testsuite                = true
   use_avahi                = false
   use_eip_bastion          = false
@@ -185,20 +211,21 @@ module "base" {
   provider_settings        = {
     availability_zone = var.AVAILABILITY_ZONE
     region            = var.REGION
-    ssh_allowed_ips   = var.ALLOWED_IPS
     key_name          = var.KEY_NAME
     key_file          = var.KEY_FILE
-  }
-}
 
-module "mirror" {
-  source = "./modules/mirror"
-  base_configuration = module.base.configuration
-  disable_cron = true
-  provider_settings = {
-    public_instance = true
+    create_network                       = false
+    create_private_network               = false
+    create_additional_network            = false
+    vpc_id                               = data.aws_vpc.infra.id
+    public_subnet_id                     = data.aws_subnet.infra["public"].id
+    private_subnet_id                    = data.aws_subnet.infra["private"].id
+    private_additional_subnet_id         = data.aws_subnet.infra["private-additional"].id
+    public_security_group_id             = data.aws_security_group.infra["public"].id
+    private_security_group_id            = data.aws_security_group.infra["private"].id
+    private_additional_security_group_id = data.aws_security_group.infra["private-additional"].id
+    bastion_host                         = data.aws_instance.bastion.public_dns
   }
-  image = "opensuse160o"
 }
 
 module "server" {
@@ -606,14 +633,6 @@ module "controller" {
 
 output "bastion_public_name" {
   value = lookup(module.base.configuration, "bastion_host", null)
-}
-
-output "aws_mirrors_private_name" {
-  value = module.mirror.configuration.hostnames
-}
-
-output "aws_mirrors_public_name" {
-  value = module.mirror.configuration.public_names
 }
 
 output "configuration" {
